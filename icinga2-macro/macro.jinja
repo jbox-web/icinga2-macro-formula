@@ -1,0 +1,68 @@
+{% set ind_increment = 2 %}
+{%- macro icinga_serialize(object, parent = [], ind = 2, lb = '\n', operator = ' = ', from_array = False, within_array = False) -%}
+  {%- if object is mapping -%}
+    {%- for k, v in object.items() -%}
+      {%- if v == True or v == False -%}
+{{ lb }}{{ wrap_key(k, parent, from_array) | indent(ind, True) }}{{ operator }}{{ v | lower}}
+      {%- elif v is number -%}
+{{ lb }}{{ wrap_key(k, parent, from_array) | indent(ind, True) }}{{ operator }}{{ v }}
+      {%- elif v is string -%}
+{{ lb }}{{ wrap_key(k, parent, from_array) | indent(ind, True) }}{{ operator }}"{{ v }}"
+      {%- elif v is mapping -%}
+        {# here the order matter: do not invert [k] and parent #}
+        {%- set p = parent + [k] -%}
+{{ icinga_serialize(v, p, ind, from_array=from_array, within_array=within_array) }}
+      {%- elif v is iterable -%}
+        {%- if v | length == 0 -%}
+{{ lb }}{{ wrap_key(k, parent, from_array) | indent(ind, True) }}{{ operator }}{{ '[]' }}
+        {%- else -%}
+          {# here the order matter: do not invert [k] and parent #}
+          {%- set p = [k] + parent -%}
+{{ icinga_serialize(v, p, ind, from_array=from_array, within_array=within_array) }}
+        {%- endif -%}
+      {%- endif -%}
+    {%- endfor -%}
+  {%- elif object is iterable -%}
+    {%- set buffer = [] -%}
+    {%- for v in object -%}
+      {%- if v == True or v == False -%}
+        {%- set cast = v | lower  -%}
+        {%- do buffer.append(cast) -%}
+      {%- elif v is number -%}
+        {%- do buffer.append(v) -%}
+      {%- elif v is string -%}
+        {%- set cast = '"' ~ v ~ '"' -%}
+        {%- do buffer.append(cast) -%}
+      {%- elif v is mapping -%}
+        {%- set cast = lb ~ ('{' | indent(ind, True)) ~ icinga_serialize(v, parent, ind + 2, from_array=True, within_array=within_array) ~ lb ~ ('}' | indent(ind, True)) -%}
+        {%- do buffer.append(cast) -%}
+      {%- elif v is iterable -%}
+        {%- set cast = icinga_serialize(v, parent, ind + 2, from_array=from_array, within_array=True) -%}
+        {%- do buffer.append(cast) -%}
+      {%- endif -%}
+    {%- endfor -%}
+{%- if within_array -%}
+[{{ buffer | join(', ')}}]
+{%- else -%}
+  {%- set key = parent[0] -%}
+  {%- do parent.remove(key) -%}
+{{ lb }}{{ wrap_key(key, parent, from_array) | indent(ind, True) }}{{ operator }}[{{ buffer | join(', ')}}]
+{%- endif -%}
+  {%- endif -%}
+{%- endmacro -%}
+
+{%- macro wrap_key(key, parent, from_array = False) -%}
+  {%- if from_array -%}
+{{ key }}
+  {%- else -%}
+vars.config{{ build_parent(parent) }}["{{ key }}"]
+  {%- endif -%}
+{%- endmacro -%}
+
+{%- macro build_parent(parent) -%}
+  {%- for p in parent -%}
+    {%- if p is not none -%}
+["{{ p }}"]
+    {%- endif -%}
+  {%- endfor -%}
+{%- endmacro -%}
